@@ -80,7 +80,9 @@ jobs:
       - name: Build kernel
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: ./unixnu build kernel
+        run: |
+          ./unixnu defconfig r8q_defconfig
+          ./unixnu build kernel
 
       - name: Upload the kernel Mach-O
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
