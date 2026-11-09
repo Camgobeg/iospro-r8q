@@ -1,129 +1,96 @@
 # iospro-r8q
 
-> **UniXNU / HackiOS Porting & Bootloader Framework for Samsung Galaxy S20 FE 5G (`r8q` / SM8250)**
+> **UniXNU / HackiOS boot framework for Samsung Galaxy S20 FE 5G (`r8q` / SM8250)** — real pipeline edition.
 
-[![Build Darwin XNU Kernel](https://github.com/Camgobeg/iospro-r8q/actions/workflows/build-kernel.yml/badge.svg)](https://github.com/Camgobeg/iospro-r8q/actions/workflows/build-kernel.yml)
-[![Build SM8250 UEFI](https://github.com/Camgobeg/iospro-r8q/actions/workflows/build-uefi.yml/badge.svg)](https://github.com/Camgobeg/iospro-r8q/actions/workflows/build-uefi.yml)
-[![Build RootFS Ramdisk](https://github.com/Camgobeg/iospro-r8q/actions/workflows/build-rootfs.yml/badge.svg)](https://github.com/Camgobeg/iospro-r8q/actions/workflows/build-rootfs.yml)
-[![Assemble Android boot.img](https://github.com/Camgobeg/iospro-r8q/actions/workflows/build-bootimg.yml/badge.svg)](https://github.com/Camgobeg/iospro-r8q/actions/workflows/build-bootimg.yml)
-
----
-
-## 🇹🇷 Türkçe Açıklama
-
-Bu proje, **Samsung Galaxy S20 FE 5G (`r8q`)** cihazında bulunan **Qualcomm Snapdragon 865 (SM8250 / Kona)** platformu üzerinde Apple'ın açık kaynaklı **XNU (Darwin) çekirdeğini** ve **UniXNU / HackiOS** tabanlı Mach-O kullanıcı ortamını başlatmak için geliştirilmiş özel bootloader, çekirdek yamaları ve GitHub Actions derleme altyapısıdır.
-
-### ⚠️ Önemli Güvenlik Kuralları (Brick Koruması)
-Cihazın brick olmasını (kalıcı olarak kullanılamaz hale gelmesini) önlemek için projede katı güvenlik önlemleri alınmıştır:
-1. **Asla Dokunulmayacak Kritik Bölümler (Blocklist):**
-   - `xbl`, `xbl_config`, `abl`, `tz` (TrustZone), `hyp`, `aop`, `modem`, `efs`, `sec_efs`, `persist`.
-   - Bu bölümlere kesinlikle yazma/silme işlemi yapılmaz.
-2. **Yalnızca Hedef Bölüm (`boot`):**
-   - Yapılan tüm derlemeler standart Android `boot.img` formatında paketlenir.
-   - Sadece `boot` (veya `boot_a` / `boot_b`) bölümüne yazılır.
-3. **RAM Üzerinden Risksiz Test:**
-   - Cihaza kalıcı flaş yapmadan önce `fastboot boot boot.img` komutu ile geçici olarak test edilir. Cihaz hafızasına tek bir bayt bile yazılmaz!
-4. **Zorunlu Onay ve Yedekleme:**
-   - `tools/backup-partitions.sh` ile stock `boot`, `recovery`, `dtbo`, `vbmeta` bölümlerinin tam yedeği alınmadan işlem yapılmaz.
-   - `tools/flash-safe.sh` scripti kullanıcıdan açıkça onay (`CONFIRM_FLASH`) istemeden yazma yapmaz.
+[![Build XNU Kernel](https://github.com/Camgobeg/iospro-r8q/actions/workflows/build-kernel.yml/badge.svg)](https://github.com/Camgobeg/iospro-r8q/actions/workflows/build-kernel.yml)
+[![Build r8q UEFI Firmware](https://github.com/Camgobeg/iospro-r8q/actions/workflows/build-firmware.yml/badge.svg)](https://github.com/Camgobeg/iospro-r8q/actions/workflows/build-firmware.yml)
+[![Build r8q Payload](https://github.com/Camgobeg/iospro-r8q/actions/workflows/build-payload.yml/badge.svg)](https://github.com/Camgobeg/iospro-r8q/actions/workflows/build-payload.yml)
+[![Assemble boot.img](https://github.com/Camgobeg/iospro-r8q/actions/workflows/build-bootimg.yml/badge.svg)](https://github.com/Camgobeg/iospro-r8q/actions/workflows/build-bootimg.yml)
 
 ---
 
-## 🇬🇧 English Description
+## 🇹🇷 Ne bu proje?
 
-This project provides the bootloader framework, hardware adaptation patches, and automated GitHub Actions CI/CD pipelines to port and boot Apple's open-source **XNU (Darwin) kernel** on the **Samsung Galaxy S20 FE 5G (`r8q`)** powered by **Qualcomm Snapdragon 865 (SM8250)**.
+Samsung Galaxy S20 FE 5G (`r8q`, SM-G780G, Snapdragon 865) üzerinde Apple'ın
+XNU (Darwin) çekirdeğini başlatmak için **gerçek, kanıtlanmış UniXNU
+pipeline'ı**. Bu depo artık sahte stub üreten değil; telefonda boot testinden
+geçmiş bileşenlerin CI otomasyonudur.
 
-### Target Device Specifications
-- **Device Model:** Samsung Galaxy S20 FE 5G (`SM-G781B` / `SM-G781U`)
-- **Codename:** `r8q`
-- **SoC:** Qualcomm Snapdragon 865 (`SM8250` / `Kona`)
-- **CPU:** 8 Cores (1x Cortex-A77 Prime @ 2.84 GHz, 3x Cortex-A77 Gold @ 2.42 GHz, 4x Cortex-A55 Silver @ 1.80 GHz)
-- **GPU:** Qualcomm Adreno 650
-- **Display:** 1080x2400 Super AMOLED @ 120Hz
-- **Bootloader:** Qualcomm ABL (Android Boot Loader)
+### Mimari (gerçek boot akışı)
 
----
+```
+boot.img (Android boot image, header v1, 4096 sayfa)
+├── kernel alanı : gzip(BootShim + SILICIUM_UEFI.fd 3 MiB) + live.dtb
+│                  └── BootShim UEFI'yi 0x9FC00000'e kopyalar, ABL'nin FDT'sini korur
+├── ramdisk      : payload.img (56 MiB FAT — kernel.macho + ADT + unixnu.toml)
+│                  └── ABL initrd'yi RAM'e koyup FDT'ye initrd-start/end yazar
+└── (dtb)        : telefonun kendi live device tree'si (cont_splash korunur)
 
-## 📂 Repository Layout
+UEFI (Mu-Silicium r8qPkg) → UniXNURamDiskDxe initrd'yü BlockIo yapar
+→ Fat mounts → UniXNU menüsü → DarwinBoot → XNU kernel.macho
+```
 
-```text
-iospro-r8q/
-├── .github/workflows/
-│   ├── build-kernel.yml        # XNU Kernel cross-compilation pipeline
-│   ├── build-uefi.yml          # EDK2 / XNULoader build pipeline
-│   ├── build-rootfs.yml        # Darwin Mach-O initrd generator
-│   └── build-bootimg.yml       # Android boot.img packaging pipeline
-├── boot/
-│   ├── android/
-│   │   ├── bootimg.cfg         # Kernel offsets, page size (4096), cmdline
-│   │   └── mkbootimg.py        # Android header v2 boot image builder
-│   └── xnuloader/
-│       ├── entry.S             # ARM64 EL2->EL1 vector and MMU setup
-│       ├── main.c              # Video console & boot_args structure builder
-│       └── Makefile            # Loader build rule
-├── kernel/
-│   ├── configs/                # Target machine definition
-│   ├── patches/                # Hardware adaptation patches
-│   │   ├── 0001-sm8250-gicv3-support.patch     # ARM GICv3 interrupt controller
-│   │   ├── 0002-sm8250-generic-timer.patch    # ARMv8 generic architected timer
-│   │   ├── 0003-sm8250-simplefb-console.patch  # Framebuffer console (1080x2400)
-│   │   ├── 0004-sm8250-4k-pagesize.patch       # Force 4KB page size translation
-│   │   ├── 0005-bypass-sep-amfid-checks.patch # Stub SEP and AMFID enforcement
-│   │   └── 0006-sm8250-psci-smp.patch          # PSCI multi-core bringup
-│   └── scripts/
-│       └── build-kernel.sh     # Source fetcher and compiler
-├── rootfs/
-│   ├── overlay/                # Minimal Darwin filesystem overlay (/sbin/init, etc.)
-│   └── scripts/
-│       ├── make-ramdisk.sh     # Initial ramdisk generator
-│       └── ipsw-extractor.py   # Apple IPSW component extractor
-├── tools/
-│   ├── backup-partitions.sh    # Dumps stock partitions via root ADB
-│   ├── flash-safe.sh           # Safe flashing script with strict blocklists
-│   └── test-boot.sh            # Safe RAM boot via 'fastboot boot'
-└── docs/
-    ├── ARCHITECTURE.md         # Hardware & low-level porting documentation
-    ├── PARTITIONS_AND_SAFETY.md# Partition safety ratings and blocklists
-    └── BOOT_FLOW.md            # Boot sequence diagrams and boot_args spec
+### Depo düzeni
+
+| Yol | İçerik |
+| --- | --- |
+| `.github/workflows/build-kernel.yml` | macOS runner'da gerçek XNU derlemesi (UniXNU build driver, device repo `Camgobeg/UniXNU-r8q`) |
+| `.github/workflows/build-firmware.yml` | Mu-Silicium `r8qPkg` UEFI firmware'i (uefi-sheng + device yaması) |
+| `.github/workflows/build-payload.yml` | kernel.macho + ADT → 56 MiB FAT payload |
+| `.github/workflows/build-bootimg.yml` | FD + payload + live.dtb → flash'lanabilir `boot.img` |
+| `tools/backup-partitions.sh` | Root ADB ile stock boot/dtbo/vbmeta yedeği |
+| `tools/flash-safe.sh` | Blocklist'li güvenli flash (sadece `boot`) |
+| `tools/test-boot.sh` | `fastboot boot` ile RAM'de geçici test |
+| `tools/make-odin-tar.py` | Odin `.tar.md5` paketleyici |
+| `boot/live.dtb` | Telefonun kendi device tree'si (adb ile çekilir) |
+
+### Kullanım (CI)
+
+1. **Build XNU Kernel** workflow'unu dispatch et → `kernel-r8q` artifact
+2. **Build r8q UEFI Firmware** → `firmware-r8q-DEBUG`
+3. **Build r8q Payload** (kernel run id + `UNIXNU_UNIQUE_CHIP_ID` secret gerekir)
+4. **Assemble r8q boot.img** (firmware + payload run id) → `boot-r8q`
+5. `tools/flash-safe.sh boot.img` (önce yedek!)
+
+### Yerel derleme (WSL)
+
+```sh
+git clone -b r8q-ci https://github.com/Camgobeg/UniXNU UniXNU-ci
+git clone https://github.com/Camgobeg/UniXNU-r8q
+git clone https://github.com/UniXNU/uefi-sheng Mu-Silicium
+git -C Mu-Silicium apply UniXNU-r8q/docs/patches/mu-silicium-r8q.patch
+
+cd UniXNU-ci
+./unixnu fetch -D ../UniXNU-r8q
+./unixnu build kernel          # macOS gerekir (veya CI artifact'ı kullan)
+./unixnu build payload -D ../UniXNU-r8q --kernel <kernel.macho> \
+    --uefi ../Mu-Silicium --unique-chip-id <hex>
+./unixnu build firmware -D ../UniXNU-r8q --uefi ../Mu-Silicium
+./unixnu bootimg -D ../UniXNU-r8q --uefi ../Mu-Silicium \
+    --fd <SILICIUM_UEFI.fd> --dtb <live.dtb> --ramdisk <payload.img> -o boot.img
 ```
 
 ---
 
-## 🚀 Quick Start Guide
+## ⚠️ Önemli Güvenlik Kuralları (Brick Koruması)
 
-### 1. Partition Backup (STOCK YEDEK ALMA)
-Telefon ADB üzerinden root yetkisiyle bağlıyken stock bölümlerin yedeğini alın:
-```bash
-chmod +x tools/*.sh
-./tools/backup-partitions.sh
-```
-Bu komut `boot`, `recovery`, `dtbo` ve `vbmeta` bölümlerini çekip `backups/` klasörüne SHA256 özetleriyle kaydeder.
+1. **Asla Dokunulmayacak Kritik Bölümler:** `xbl`, `xbl_config`, `abl`, `tz`,
+   `hyp`, `aop`, `modem`, `efs`, `sec_efs`, `persist` — bu bölümlere kesinlikle
+   yazma/silme yapılmaz. **GPT tablosuna asla dokunulmaz.**
+2. **Yalnızca Hedef Bölüm (`boot`):** Tüm derlemeler standart Android `boot.img`
+   formatındadır; sadece `boot` bölümüne yazılır.
+3. **Zorunlu Yedek:** `tools/backup-partitions.sh` ile yedek alınmadan flash yapılmaz.
+4. **Onay:** `tools/flash-safe.sh` kullanıcıdan açık onay istemeden yazma yapmaz.
 
-### 2. Risksiz Geçici Test (RAM Boot)
-Cihazı fastboot moduna alın (`adb reboot bootloader`) ve kalıcı flaş yapmadan RAM'de test edin:
-```bash
-./tools/test-boot.sh out/boot.img
-```
-Bu yöntem cihaz hafızasına hiçbir şey yazmaz; yeniden başlattığınızda telefon normal Android'e döner.
+## Cihaz
 
-### 3. Kalıcı Flaş (Yalnızca Boot Bölümüne)
-```bash
-./tools/flash-safe.sh out/boot.img boot
-```
-Script kritik bölümlere (`xbl`, `abl`, `tz`, `efs`, vb.) yazmayı otomatik olarak engeller ve işlem öncesinde onay ister.
+- **Model:** SM-G780G (Galaxy S20 FE 5G, `r8q`)
+- **SoC:** Snapdragon 865 (SM8250 / Kona), GICv3 `0x17A00000`/`0x17A60000`
+- **Ekran:** 1080x2400 AMOLED (sw43404 panel sürücüsü)
+- **Depolama:** UFS (host `0x01D84000`), boot bölümü 64 MiB
+- **Bootloader:** Samsung ABL (header v1 / 4096 sayfa; imzasız `fastboot boot` reddedilir → flash `boot_a`)
 
----
+## License & Disclaimers
 
-## 🛠️ GitHub Actions CI/CD
-Tüm derleme işlemleri GitHub Actions bulut sunucularında otomatik olarak çalışır:
-- Çekirdek yamalandığında: `build-kernel.yml` tetiklenir.
-- Loader güncellendiğinde: `build-uefi.yml` tetiklenir.
-- Ramdisk değiştiğinde: `build-rootfs.yml` tetiklenir.
-- Tüm bileşenler hazır olduğunda: `build-bootimg.yml` çalışır ve indirilebilir `boot.img` üretir.
-
----
-
-## 📜 License & Disclaimers
-- Apple, iOS, iPadOS, macOS, and XNU are trademarks of Apple Inc.
-- This project is an independent open-source research and educational porting endeavor.
-- The authors and contributors assume no liability for device misuse. Follow safety guidelines at all times.
+- Apple, iOS, iPadOS, macOS and XNU are trademarks of Apple Inc.
+- Independent open-source research/education project; no liability for device misuse.

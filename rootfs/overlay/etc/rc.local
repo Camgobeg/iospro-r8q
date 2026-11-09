@@ -1,4 +1,0 @@
-#!/bin/sh
-echo "[*] Setting hostname to r8q-unixnu..."
-hostname r8q-unixnu 2>/dev/null || true
-echo "[✓] Early startup complete."

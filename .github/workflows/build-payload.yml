@@ -1,0 +1,106 @@
+name: Build r8q Payload (FAT volume for DarwinBoot)
+
+# Packs the kernel Mach-O plus its Apple Device Tree into the FAT payload volume
+# DarwinBoot reads. The payload rides in the boot image ramdisk (FDT initrd
+# handoff), so this needs only the kernel artifact and the donor IPSW inputs.
+
+on:
+  workflow_dispatch:
+    inputs:
+      kernel_run_id:
+        description: Kernel workflow run id (downloads its kernel-r8q artifact)
+        required: true
+      device_ref:
+        description: UniXNU-r8q device repository ref
+        required: true
+        default: main
+      unixnu_ref:
+        description: UniXNU build-driver ref (pinned r8q-ci baseline)
+        required: true
+        default: e8003a5
+      uefi_ref:
+        description: UniXNU/uefi-sheng ref
+        required: true
+        default: sheng
+
+permissions:
+  contents: read
+
+concurrency:
+  group: payload-${{ inputs.kernel_run_id }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  payload:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out UniXNU (build driver)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Camgobeg/UniXNU
+          ref: ${{ inputs.unixnu_ref }}
+          persist-credentials: false
+
+      - name: Check out the device repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Camgobeg/UniXNU-r8q
+          ref: ${{ inputs.device_ref }}
+          path: device
+
+      - name: Check out Mu-Silicium (uefi-sheng)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: UniXNU/uefi-sheng
+          ref: ${{ inputs.uefi_ref }}
+          path: uefi
+
+      - name: Install host tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang llvm lld python3 git device-tree-compiler mtools
+
+      - name: Download the kernel artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: kernel-r8q
+          run-id: ${{ inputs.kernel_run_id }}
+          github-token: ${{ github.token }}
+          path: kernel-artifact
+
+      - name: Locate kernel.macho
+        id: kernel
+        run: |
+          macho=$(find kernel-artifact -name kernel.macho | head -1)
+          test -n "$macho"
+          echo "macho=$GITHUB_WORKSPACE/$macho" >> "$GITHUB_OUTPUT"
+          sha256sum "$macho"
+
+      - name: Build payload
+        env:
+          UNIXNU_UNIQUE_CHIP_ID: ${{ secrets.UNIXNU_UNIQUE_CHIP_ID }}
+        run: |
+          test -n "$UNIXNU_UNIQUE_CHIP_ID" || {
+            echo "::error::Set the UNIXNU_UNIQUE_CHIP_ID repository secret (the platform seed measured from the handset)."
+            exit 1
+          }
+          ./unixnu defconfig r8q_defconfig -D device
+          ./unixnu build payload -D device \
+            --kernel "$GITHUB_WORKSPACE/${{ steps.kernel.outputs.macho }}" \
+            --uefi "$GITHUB_WORKSPACE/uefi" \
+            --unique-chip-id "$UNIXNU_UNIQUE_CHIP_ID"
+
+      - name: Upload the payload volume
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: payload-r8q
+          path: out/**/payload/payload.img
+          if-no-files-found: warn
+          retention-days: 90

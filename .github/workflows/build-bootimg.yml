@@ -1,72 +1,120 @@
-name: Assemble Android boot.img & Samsung Odin Package
+name: Assemble r8q boot.img
+
+# Packages the real boot image: gzip(BootShim + UEFI firmware volume) with the
+# phone's own live device tree appended as the kernel field, the payload FAT
+# volume as the (raw, unmodified) ramdisk the bootloader hands over through the
+# FDT, header v1 / 4096-byte pages for Samsung ABL. Only the boot partition is
+# ever flashed with this image.
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
+    inputs:
+      firmware_run_id:
+        description: Firmware workflow run id (firmware-r8q-DEBUG artifact)
+        required: true
+      payload_run_id:
+        description: Payload workflow run id (payload-r8q artifact)
+        required: true
+      device_ref:
+        description: UniXNU-r8q device repository ref
+        required: true
+        default: main
+      unixnu_ref:
+        description: UniXNU build-driver ref (pinned r8q-ci baseline)
+        required: true
+        default: e8003a5
+      uefi_ref:
+        description: UniXNU/uefi-sheng ref
+        required: true
+        default: sheng
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
-  assemble-bootimg:
-    runs-on: ubuntu-22.04
+  bootimg:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - name: Check out UniXNU (build driver)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          python-version: '3.11'
+          repository: Camgobeg/UniXNU
+          ref: ${{ inputs.unixnu_ref }}
+          persist-credentials: false
 
-      - name: Install Toolchain
+      - name: Check out the device repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Camgobeg/UniXNU-r8q
+          ref: ${{ inputs.device_ref }}
+          path: device
+
+      - name: Check out Mu-Silicium (uefi-sheng)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: UniXNU/uefi-sheng
+          ref: ${{ inputs.uefi_ref }}
+          path: uefi
+
+      - name: Install host tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu clang lld cpio
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang llvm lld python3 git device-tree-compiler mtools
 
-      - name: Build XNULoader
-        run: |
-          cd boot/xnuloader
-          make CROSS_COMPILE=aarch64-linux-gnu-
-          mkdir -p ../../out
-          cp xnuloader.bin ../../out/xnuloader.bin
-          cd ../..
-
-      - name: Build XNU Kernel
-        run: |
-          chmod +x kernel/scripts/build-kernel.sh
-          ./kernel/scripts/build-kernel.sh
-
-      - name: Build Ramdisk
-        run: |
-          chmod +x rootfs/scripts/make-ramdisk.sh
-          ./rootfs/scripts/make-ramdisk.sh
-
-      - name: Generate Android boot.img
-        run: |
-          python3 boot/android/mkbootimg.py \
-            --kernel out/xnuloader.bin \
-            --ramdisk out/ramdisk.cpio.gz \
-            --pagesize 4096 \
-            --header_version 2 \
-            --cmdline "console=simplefb -v debug=0x14e cs_enforcement=0" \
-            -o out/boot.img
-
-          sha256sum out/boot.img > out/boot.img.sha256
-          echo "Generated boot.img size: $(stat -c%s out/boot.img) bytes"
-          cat out/boot.img.sha256
-
-      - name: Package Samsung Odin .tar.md5 (For Download Mode)
-        run: |
-          python3 tools/make-odin-tar.py out/boot.img -o out/boot_odin_AP.tar.md5
-
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
+      - name: Download the firmware artifact
+        uses: actions/download-artifact@v4
         with:
-          name: boot-img-sm8250-r8q
+          name: firmware-r8q-DEBUG
+          run-id: ${{ inputs.firmware_run_id }}
+          github-token: ${{ github.token }}
+          path: firmware-artifact
+
+      - name: Download the payload artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: payload-r8q
+          run-id: ${{ inputs.payload_run_id }}
+          github-token: ${{ github.token }}
+          path: payload-artifact
+
+      - name: Locate inputs
+        id: inputs
+        run: |
+          fd=$(find firmware-artifact -name 'SILICIUM_UEFI.fd' | head -1)
+          payload=$(find payload-artifact -name 'payload.img' | head -1)
+          dtb=device/boot/live.dtb
+          test -n "$fd" && test -n "$payload" && test -f "$dtb"
+          echo "fd=$GITHUB_WORKSPACE/$fd" >> "$GITHUB_OUTPUT"
+          echo "payload=$GITHUB_WORKSPACE/$payload" >> "$GITHUB_OUTPUT"
+          echo "dtb=$GITHUB_WORKSPACE/$dtb" >> "$GITHUB_OUTPUT"
+          sha256sum "$fd" "$payload" "$dtb"
+
+      - name: Assemble the boot image
+        run: |
+          ./unixnu bootimg -D device \
+            --uefi "$GITHUB_WORKSPACE/uefi" \
+            --fd "$GITHUB_WORKSPACE/${{ steps.inputs.outputs.fd }}" \
+            --dtb "$GITHUB_WORKSPACE/${{ steps.inputs.outputs.dtb }}" \
+            --ramdisk "$GITHUB_WORKSPACE/${{ steps.inputs.outputs.payload }}" \
+            --output out/boot.img
+          size=$(stat -c%s out/boot.img)
+          echo "boot.img bytes: $size"
+          test "$size" -lt 67108864 || {
+            echo "::error::The boot image does not fit the 64 MiB boot partition."
+            exit 1
+          }
+
+      - name: Upload the boot image
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: boot-r8q
           path: |
             out/boot.img
-            out/boot.img.sha256
-            out/boot_odin_AP.tar.md5
-            out/xnuloader.bin
-            out/ramdisk.cpio.gz
-            out/mach_kernel.arm64
+            out/boot.json
+          retention-days: 90

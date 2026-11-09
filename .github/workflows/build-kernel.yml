@@ -1,41 +1,94 @@
-name: Build Darwin XNU Kernel (SM8250 r8q)
+name: Build XNU Kernel (r8q, UniXNU pipeline)
+
+# Real Darwin/XNU cross-build on the macOS runner, exactly like UniXNU's own CI
+# (stevedang67889/UniXNU-ci macos.yml). The kernel produced here is the input of
+# the payload and boot image workflows. Nothing fake: the build driver fetches
+# Apple's xnu sources, applies the device patch series and links kernel.macho.
 
 on:
-  push:
-    paths:
-      - 'kernel/**'
-      - '.github/workflows/build-kernel.yml'
   workflow_dispatch:
+    inputs:
+      device_ref:
+        description: UniXNU-r8q device repository ref
+        required: true
+        default: main
+      unixnu_ref:
+        description: UniXNU build-driver ref (pinned r8q-ci baseline)
+        required: true
+        default: e8003a5
+      xcode:
+        description: Xcode version of the macos-26 image
+        required: true
+        default: "26.6"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kernel-${{ inputs.device_ref }}
+  cancel-in-progress: false
+
+env:
+  HOMEBREW_NO_AUTO_UPDATE: 1
+  HOMEBREW_NO_INSTALL_CLEANUP: 1
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
-  build-kernel:
-    runs-on: ubuntu-22.04
+  kernel:
+    runs-on: macos-26
+    timeout-minutes: 360
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_${{ inputs.xcode }}.app/Contents/Developer
+      UNIXNU_DEVICE: ${{ github.workspace }}/device
+      DEFCONFIG: r8q_defconfig
+      STEPS: kernel
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Install Build Toolchain & Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential clang llvm lld \
-            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
-            bison flex libncurses5-dev libssl-dev \
-            python3 python3-pip curl git cpio
-
-      - name: Fetch and Patch Apple XNU Sources
-        run: |
-          chmod +x kernel/scripts/build-kernel.sh
-          ./kernel/scripts/build-kernel.sh
-
-      - name: Package Kernel Artifacts
-        run: |
-          mkdir -p artifacts
-          cp out/mach_kernel.arm64 artifacts/ || true
-          tar -czf artifacts/xnu-kernel-r8q.tar.gz -C out .
-
-      - name: Upload Kernel Artifact
-        uses: actions/upload-artifact@v4
+      - name: Check out UniXNU (build driver)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          name: xnu-kernel-sm8250-r8q
-          path: artifacts/
+          repository: Camgobeg/UniXNU
+          ref: ${{ inputs.unixnu_ref }}
+          persist-credentials: false
+
+      - name: Check out the device repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Camgobeg/UniXNU-r8q
+          ref: ${{ inputs.device_ref }}
+          path: device
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Install host tools
+        run: |
+          brew install llvm lld mtools dtc
+          if ! command -v unifdef >/dev/null; then
+            brew install unifdef
+            echo "$(brew --prefix unifdef)/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Device pre-build hook (curated XNU series + NativeUfs)
+        env:
+          UNIXNU_DEVICE: ${{ github.workspace }}/device
+        run: bash -euo pipefail -c "bash device/scripts/ufs-ci-pre-build.sh"
+
+      - name: Build kernel
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./unixnu build kernel
+
+      - name: Upload the kernel Mach-O
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: kernel-r8q
+          path: |
+            out/**/kernel/kernel.macho
+            out/**/kernel/kernel.json
+          if-no-files-found: warn
+          retention-days: 90

@@ -1,0 +1,92 @@
+name: Build r8q UEFI Firmware (Mu-Silicium r8qPkg)
+
+# Real EDK II build of the Samsung r8qPkg platform from the UniXNU Mu-Silicium
+# fork (UniXNU/uefi-sheng), with the device wiring patch from UniXNU-r8q applied.
+# The firmware volume stays 3 MiB: the payload travels in the boot image ramdisk
+# and is discovered through the FDT handoff (UniXNURamDiskDxe).
+
+on:
+  workflow_dispatch:
+    inputs:
+      device_ref:
+        description: UniXNU-r8q device repository ref
+        required: true
+        default: main
+      unixnu_ref:
+        description: UniXNU build-driver ref (pinned r8q-ci baseline)
+        required: true
+        default: e8003a5
+      uefi_ref:
+        description: UniXNU/uefi-sheng ref
+        required: true
+        default: sheng
+      target:
+        description: EDK II build target
+        type: choice
+        options: [DEBUG, RELEASE]
+        default: DEBUG
+
+permissions:
+  contents: read
+
+concurrency:
+  group: firmware-${{ inputs.device_ref }}-${{ inputs.target }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  firmware:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out UniXNU (build driver)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Camgobeg/UniXNU
+          ref: ${{ inputs.unixnu_ref }}
+          persist-credentials: false
+
+      - name: Check out the device repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Camgobeg/UniXNU-r8q
+          ref: ${{ inputs.device_ref }}
+          path: device
+
+      - name: Check out Mu-Silicium (uefi-sheng)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: UniXNU/uefi-sheng
+          ref: ${{ inputs.uefi_ref }}
+          path: uefi
+
+      - name: Install host tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential uuid-dev clang llvm lld python3 git device-tree-compiler mtools
+
+      - name: Apply the device firmware patch (r8qPkg wiring)
+        run: |
+          git -C uefi apply --check "$GITHUB_WORKSPACE/device/docs/patches/mu-silicium-r8q.patch"
+          git -C uefi apply "$GITHUB_WORKSPACE/device/docs/patches/mu-silicium-r8q.patch"
+          git -C uefi diff --stat
+
+      - name: Build firmware
+        run: |
+          ./unixnu defconfig r8q_defconfig -D device
+          ./unixnu build firmware -D device --uefi "$GITHUB_WORKSPACE/uefi" --target "${{ inputs.target }}"
+
+      - name: Upload the firmware volume
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: firmware-r8q-${{ inputs.target }}
+          path: |
+            uefi/Build/r8qPkg/${{ inputs.target }}_CLANGPDB/FV/SILICIUM_UEFI.fd
+            out/**/logs/firmware.log
+          if-no-files-found: warn
+          retention-days: 90
