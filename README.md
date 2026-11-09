@@ -42,7 +42,9 @@ UEFI (Mu-Silicium r8qPkg) → UniXNURamDiskDxe initrd'yü BlockIo yapar
 | `tools/flash-safe.sh` | Blocklist'li güvenli flash (sadece `boot`) |
 | `tools/test-boot.sh` | `fastboot boot` ile RAM'de geçici test |
 | `tools/make-odin-tar.py` | Odin `.tar.md5` paketleyici |
-| `boot/live.dtb` | Telefonun kendi device tree'si (adb ile çekilir) |
+
+live.dtb (telefonun kendi FDT'si) `Camgobeg/UniXNU-r8q` deposunda:
+`boot/live.dtb` — bootimg workflow'u oradan okur.
 
 ### Kullanım (CI)
 
