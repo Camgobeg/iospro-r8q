@@ -15,7 +15,7 @@ on:
       unixnu_ref:
         description: UniXNU build-driver ref (pinned r8q-ci baseline)
         required: true
-        default: e8003a5
+        default: r8q-ci
       xcode:
         description: Xcode version of the macos-26 image
         required: true

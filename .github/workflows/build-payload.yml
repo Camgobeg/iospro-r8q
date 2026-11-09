@@ -17,7 +17,7 @@ on:
       unixnu_ref:
         description: UniXNU build-driver ref (pinned r8q-ci baseline)
         required: true
-        default: e8003a5
+        default: r8q-ci
       uefi_ref:
         description: UniXNU/uefi-sheng ref
         required: true
