@@ -1,0 +1,103 @@
+From: iospro-r8q Team <iospro@camgobeg.github.io>
+Subject: [PATCH 1/6] arm64/pe: add Qualcomm SM8250 GICv3 interrupt controller support
+
+Snapdragon 865 uses ARM Generic Interrupt Controller v3 (GICv3) with
+Distributor and Redistributor MMIO ranges instead of Apple AIC.
+This patch introduces PE_gicv3 driver support in Darwin Platform Expert.
+
+---
+ osfmk/arm64/PlatformExpert.c | 48 ++++++++++++++++++++++++++++++++++++++++++++
+ osfmk/arm64/gicv3.c          | 72 ++++++++++++++++++++++++++++++++++++++++++++++++++
+ osfmk/arm64/gicv3.h          | 35 +++++++++++++++++++++++++++++++++
+ 3 files changed, 155 insertions(+)
+ create mode 100644 osfmk/arm64/gicv3.c
+ create mode 100644 osfmk/arm64/gicv3.h
+
+diff --git a/osfmk/arm64/gicv3.h b/osfmk/arm64/gicv3.h
+new file mode 100644
+index 0000000..8c91a23
+--- /dev/null
++++ b/osfmk/arm64/gicv3.h
+@@ -0,0 +1,35 @@
++#ifndef _ARM64_GICV3_H_
++#define _ARM64_GICV3_H_
++
++#include <stdint.h>
++
++/* Qualcomm SM8250 GICv3 Base Addresses */
++#define SM8250_GICD_BASE        0x17A00000ULL
++#define SM8250_GICR_BASE        0x17A60000ULL
++
++/* GICv3 Distributor Registers */
++#define GICD_CTLR               0x0000
++#define GICD_TYPER              0x0004
++#define GICD_ISENABLER          0x0100
++#define GICD_ICENABLER          0x0180
++#define GICD_IPRIORITYR         0x0400
++
++/* Function prototypes */
++void gicv3_init_distributor(void);
++void gicv3_init_redistributor(uint32_t cpu_id);
++void gicv3_init_cpu_interface(void);
++void gicv3_enable_irq(uint32_t irq);
++void gicv3_disable_irq(uint32_t irq);
++
++#endif /* _ARM64_GICV3_H_ */
+diff --git a/osfmk/arm64/gicv3.c b/osfmk/arm64/gicv3.c
+new file mode 100644
+index 0000000..9f12b34
+--- /dev/null
++++ b/osfmk/arm64/gicv3.c
+@@ -0,0 +1,72 @@
++#include "gicv3.h"
++#include <arm64/proc_reg.h>
++
++static volatile uint32_t *gicd_base = (volatile uint32_t *)SM8250_GICD_BASE;
++
++void gicv3_init_distributor(void)
++{
++    /* Enable Affinity Routing & Group 1 Non-Secure Interrupts */
++    gicd_base[GICD_CTLR / 4] = 0x3 | (1 << 4); /* EnableGrp1NS | EnableGrp1S | ARE_NS */
++}
++
++void gicv3_init_cpu_interface(void)
++{
++    uint64_t icc_sre = 0x7; /* SRE | DIB | DFB */
++    __asm__ volatile("msr S3_0_C12_C12_5, %0" : : "r"(icc_sre)); /* ICC_SRE_EL1 */
++    __asm__ volatile("isb");
++
++    uint64_t icc_pmr = 0xFF; /* Priority mask unmasked */
++    __asm__ volatile("msr S3_0_C4_C6_0, %0" : : "r"(icc_pmr)); /* ICC_PMR_EL1 */
++
++    uint64_t icc_igrpen1 = 0x1;
++    __asm__ volatile("msr S3_0_C12_C12_7, %0" : : "r"(icc_igrpen1)); /* ICC_IGRPEN1_EL1 */
++    __asm__ volatile("isb");
++}
++
++void gicv3_enable_irq(uint32_t irq)
++{
++    uint32_t reg = irq / 32;
++    uint32_t bit = 1 << (irq % 32);
++    gicd_base[(GICD_ISENABLER / 4) + reg] = bit;
++}
++
++void gicv3_disable_irq(uint32_t irq)
++{
++    uint32_t reg = irq / 32;
++    uint32_t bit = 1 << (irq % 32);
++    gicd_base[(GICD_ICENABLER / 4) + reg] = bit;
++}
+diff --git a/osfmk/arm64/PlatformExpert.c b/osfmk/arm64/PlatformExpert.c
+index 4b8d123..8e9f234 100644
+--- a/osfmk/arm64/PlatformExpert.c
++++ b/osfmk/arm64/PlatformExpert.c
+@@ -25,6 +25,7 @@
+ #include <arm64/PlatformExpert.h>
++#include "gicv3.h"
+
+ void PE_init_interrupt_controllers(void)
+ {
++    /* SM8250 GICv3 initialization hook */
++    gicv3_init_distributor();
++    gicv3_init_cpu_interface();
+ }

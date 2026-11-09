@@ -1,0 +1,41 @@
+name: Build Darwin XNU Kernel (SM8250 r8q)
+
+on:
+  push:
+    paths:
+      - 'kernel/**'
+      - '.github/workflows/build-kernel.yml'
+  workflow_dispatch:
+
+jobs:
+  build-kernel:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Build Toolchain & Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang llvm lld \
+            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+            bison flex libncurses5-dev libssl-dev \
+            python3 python3-pip curl git cpio
+
+      - name: Fetch and Patch Apple XNU Sources
+        run: |
+          chmod +x kernel/scripts/build-kernel.sh
+          ./kernel/scripts/build-kernel.sh
+
+      - name: Package Kernel Artifacts
+        run: |
+          mkdir -p artifacts
+          cp out/mach_kernel.arm64 artifacts/ || true
+          tar -czf artifacts/xnu-kernel-r8q.tar.gz -C out .
+
+      - name: Upload Kernel Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xnu-kernel-sm8250-r8q
+          path: artifacts/

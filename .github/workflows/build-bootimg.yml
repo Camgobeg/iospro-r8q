@@ -1,0 +1,51 @@
+name: Assemble Android boot.img
+
+on:
+  workflow_run:
+    workflows: ["Build Darwin XNU Kernel (SM8250 r8q)", "Build SM8250 UEFI Firmware (EDK2)", "Build Darwin RootFS & Ramdisk"]
+    types:
+      - completed
+  workflow_dispatch:
+
+jobs:
+  assemble-bootimg:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Build Components
+        run: |
+          sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu cpio
+          mkdir -p out
+          # 1. Compile Loader
+          cd boot/xnuloader && make CROSS_COMPILE=aarch64-linux-gnu- && cp xnuloader.bin ../../out/ && cd ../..
+          # 2. Compile Kernel Stub
+          chmod +x kernel/scripts/build-kernel.sh && ./kernel/scripts/build-kernel.sh
+          # 3. Compile Ramdisk
+          chmod +x rootfs/scripts/make-ramdisk.sh && ./rootfs/scripts/make-ramdisk.sh
+
+      - name: Generate Android boot.img
+        run: |
+          python3 boot/android/mkbootimg.py \
+            --kernel out/xnuloader.bin \
+            --ramdisk out/ramdisk.cpio.gz \
+            --pagesize 4096 \
+            --header_version 2 \
+            --cmdline "console=simplefb -v debug=0x14e cs_enforcement=0" \
+            -o out/boot.img
+
+          sha256sum out/boot.img > out/boot.img.sha256
+
+      - name: Upload boot.img Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: boot-img-sm8250-r8q
+          path: |
+            out/boot.img
+            out/boot.img.sha256

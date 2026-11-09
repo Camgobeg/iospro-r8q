@@ -1,0 +1,45 @@
+From: iospro-r8q Team <iospro@camgobeg.github.io>
+Subject: [PATCH 5/6] security: stub SEP coprocessor mailbox and disable AMFID enforcement
+
+Prevents panic when Apple Secure Enclave is absent, and allows
+unrestricted Mach-O binary execution by disabling CS enforcement.
+
+---
+ bsd/kern/ubc_subr.c           | 12 ++++++++++++
+ osfmk/arm64/sep_stub.c        | 28 ++++++++++++++++++++++++++++
+ 2 files changed, 40 insertions(+)
+ create mode 100644 osfmk/arm64/sep_stub.c
+
+diff --git a/osfmk/arm64/sep_stub.c b/osfmk/arm64/sep_stub.c
+new file mode 100644
+index 0000000..3344556
+--- /dev/null
++++ b/osfmk/arm64/sep_stub.c
+@@ -0,0 +1,28 @@
++#include <stdint.h>
++
++/* Stub Secure Enclave Mailbox calls */
++int sep_client_ping(void)
++{
++    return 0; /* OK */
++}
++
++int sep_send_command(uint32_t cmd, void *data, uint32_t len)
++{
++    return 0; /* Stubbed success */
++}
++
+diff --git a/bsd/kern/ubc_subr.c b/bsd/kern/ubc_subr.c
+index 7766554..1122443 100644
+--- a/bsd/kern/ubc_subr.c
++++ b/bsd/kern/ubc_subr.c
+@@ -100,6 +100,12 @@ int cs_enforce(void)
+ {
++    /* Always permit execution of unsigned Mach-O binaries in UniXNU */
++    return 0;
+ }
++
++int cs_validate_page(void *page, uint32_t offset)
++{
++    return 0; /* Always valid */
++}

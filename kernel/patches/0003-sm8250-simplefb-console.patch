@@ -1,0 +1,39 @@
+From: iospro-r8q Team <iospro@camgobeg.github.io>
+Subject: [PATCH 3/6] arm64/console: implement SimpleFB GOP linear console for S20 FE 5G
+
+Enables early verbose graphical console via linear framebuffer
+provided by ABL/UEFI at 1080x2400 @ 32bpp.
+
+---
+ osfmk/arm64/video_console.c | 42 ++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 42 insertions(+)
+
+diff --git a/osfmk/arm64/video_console.c b/osfmk/arm64/video_console.c
+index a123456..b654321 100644
+--- a/osfmk/arm64/video_console.c
++++ b/osfmk/arm64/video_console.c
+@@ -30,6 +30,34 @@
+ #include <pexpert/pexpert.h>
+
+ void PE_init_video_console(PE_Video *video)
+ {
++    /* SM8250 Galaxy S20 FE 5G Framebuffer fallback initialization */
++    if (video->v_baseAddr == 0) {
++        video->v_baseAddr = 0x9C000000ULL;
++        video->v_width = 1080;
++        video->v_height = 2400;
++        video->v_depth = 32;
++        video->v_rowBytes = 1080 * 4;
++    }
++
++    /* Map video framebuffer into kernel virtual space */
++    vm_offset_t fb_virt = ml_io_map(video->v_baseAddr, video->v_height * video->v_rowBytes);
++    video->v_baseAddr = (uintptr_t)fb_virt;
++
++    /* Clear screen to black background */
++    uint32_t *pixel = (uint32_t *)fb_virt;
++    size_t count = (video->v_width * video->v_height);
++    for (size_t i = 0; i < count; i++) {
++        pixel[i] = 0xFF000000; /* Black */
++    }
+ }

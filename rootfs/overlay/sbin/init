@@ -1,0 +1,18 @@
+#!/bin/sh
+# Minimal Darwin init wrapper for iospro-r8q
+echo "============================================="
+echo "   iospro-r8q: Darwin Initializing on SM8250 "
+echo "   Target: Samsung Galaxy S20 FE 5G (r8q)    "
+echo "============================================="
+
+# Mount pseudo filesystems
+mount -t devfs devfs /dev 2>/dev/null || true
+
+# Execute rc.local
+if [ -x /etc/rc.local ]; then
+    /etc/rc.local
+fi
+
+# Launch shell on console
+echo "[*] Spawning rescue shell..."
+exec /bin/sh
