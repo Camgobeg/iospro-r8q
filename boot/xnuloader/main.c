@@ -3,8 +3,12 @@
  * Bridges Android/UEFI environment to Apple XNU boot_args
  */
 
-#include <stdint.h>
-#include <stddef.h>
+typedef unsigned char uint8_t;
+typedef unsigned short uint16_t;
+typedef unsigned int uint32_t;
+typedef unsigned long long uint64_t;
+typedef unsigned long long uintptr_t;
+typedef unsigned long long size_t;
 
 #define BOOT_ARGS_VERSION 2
 
