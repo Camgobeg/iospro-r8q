@@ -69,6 +69,17 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential uuid-dev clang llvm lld python3 git device-tree-compiler mtools
 
+      - name: Initialize the Mu-Silicium submodules the build needs
+        # Mu_Basecore comes from the UniXNU feed instead (board.toml packages);
+        # initializing it as a submodule too would shadow the feed packages.
+        run: |
+          git -C uefi submodule update --init --depth 1 -- \
+            Binaries \
+            Common/Mu \
+            Common/Mu_OEM_Sample \
+            Silicium-ACPI \
+            Silicon/Silicium/OpensslPkg/Library/OpensslLib/openssl
+
       - name: Apply the device firmware patch (r8qPkg wiring)
         run: |
           git -C uefi apply --check "$GITHUB_WORKSPACE/device/docs/patches/mu-silicium-r8q.patch"
