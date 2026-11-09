@@ -1,4 +1,4 @@
-name: Assemble Android boot.img
+name: Assemble Android boot.img & Samsung Odin Package
 
 on:
   push:
@@ -55,13 +55,18 @@ jobs:
           echo "Generated boot.img size: $(stat -c%s out/boot.img) bytes"
           cat out/boot.img.sha256
 
-      - name: Upload boot.img Artifact
+      - name: Package Samsung Odin .tar.md5 (For Download Mode)
+        run: |
+          python3 tools/make-odin-tar.py out/boot.img -o out/boot_odin_AP.tar.md5
+
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: boot-img-sm8250-r8q
           path: |
             out/boot.img
             out/boot.img.sha256
+            out/boot_odin_AP.tar.md5
             out/xnuloader.bin
             out/ramdisk.cpio.gz
             out/mach_kernel.arm64

@@ -1,0 +1,17 @@
+# Build artifacts
+out/
+build/
+backups/
+
+# Binaries and images
+*.img
+*.tar
+*.tar.md5
+*.o
+*.bin
+*.elf
+*.cpio.gz
+
+# Temporary files
+*.tmp
+__pycache__/
